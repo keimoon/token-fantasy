@@ -1,0 +1,21 @@
+[package]
+name = "token-fantasy"
+version = "0.1.0"
+edition = "2024"
+description = "The Claude Code and Codex sessions on this machine as a 16-bit JRPG battle party, their projects as the monsters, in a desktop window"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+libc = "0.2"
+memchr = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = "1"
+softbuffer = "0.4"
+unicode-normalization = "0.1"
+winit = "0.30"
+
+[profile.dev]
+opt-level = 1       # the renderer is per-pixel; unoptimized frames are slow
+
+[dev-dependencies]
+png = "0.18.1"
