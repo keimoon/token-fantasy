@@ -1,6 +1,7 @@
 //! The kitty window a session runs in, found in its process's environment,
-//! and bringing it to the front: `kitten @ focus-window`, then hyprctl.
-//! Needs kitty's remote control socket (`listen_on` in kitty.conf).
+//! and bringing it to the front: `kitten @ focus-window`, then hyprctl on
+//! Linux or `open -a kitty` on macOS. Needs kitty's remote control socket
+//! (`listen_on` in kitty.conf).
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -20,10 +21,10 @@ pub struct Terminal {
     pub hypr: String,
 }
 
-/// The terminal of a process from its environment, or None when it does not
-/// run in a kitty with a remote control socket.
-pub(crate) fn of_process(pid: u32) -> Option<Terminal> {
-    let raw = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+/// The terminal of a process from its environment (NUL-separated NAME=value
+/// entries), or None when it does not run in a kitty with a remote control
+/// socket.
+pub(crate) fn of_environ(raw: &[u8]) -> Option<Terminal> {
     let mut env: HashMap<&[u8], &[u8]> = HashMap::new();
     for x in raw.split(|&b| b == 0) {
         if let Some(i) = memchr::memchr(b'=', x) {
@@ -86,17 +87,23 @@ fn what(out: &str, err: &str) -> String {
 }
 
 /// Brings a kitty window to the front, or says what went wrong. kitty
-/// switches to its tab and split, but Hyprland ignores kitty's own request to
-/// be focused (misc:focus_on_activate is off), so hyprctl raises it (Lua
-/// dispatch syntax, Hyprland 0.56); with several kitty OS windows Hyprland
-/// picks the first by pid. Blocks up to 5 s per command.
+/// switches to its tab and split, then the window has to come forward:
+/// Hyprland ignores kitty's own request to be focused (misc:focus_on_activate
+/// is off), so hyprctl raises it (Lua dispatch syntax, Hyprland 0.56; with
+/// several kitty OS windows Hyprland picks the first by pid); on macOS
+/// `open -a kitty` activates the app. Blocks up to 5 s per command.
 pub fn bring_up(t: &Terminal) -> Result<(), String> {
     let window = format!("id:{}", t.window);
     let (ok, out, err) = run(Command::new("kitten").args(["@", "--to", &t.to, "focus-window", "--match", &window]))?;
     if !ok {
         return Err(format!("kitty: {}", what(&out, &err)));
     }
-    if t.kitty != 0 {
+    if cfg!(target_os = "macos") {
+        let (ok, out, err) = run(Command::new("open").args(["-a", "kitty"]))?;
+        if !ok {
+            return Err(format!("open: {}", what(&out, &err)));
+        }
+    } else if t.kitty != 0 {
         let mut cmd = Command::new("hyprctl");
         cmd.args(["dispatch", &format!("hl.dsp.focus({{ window = \"pid:{}\" }})", t.kitty)]);
         if !t.hypr.is_empty() {
@@ -126,36 +133,19 @@ mod tests {
         assert_eq!(what("out", " err "), "err");
     }
 
-    /// A sleeping child with this environment, once its environment shows in /proc.
-    fn child(env: &[(&str, &str)]) -> std::process::Child {
-        let mut cmd = Command::new("sleep");
-        cmd.arg("5").env_remove("KITTY_LISTEN_ON").envs(env.iter().copied());
-        let child = cmd.spawn().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while std::fs::read(format!("/proc/{}/environ", child.id())).is_ok_and(|e| e.is_empty())
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        child
-    }
-
     #[test]
     fn finds_the_kitty_window_in_the_environment() {
-        let mut outside = child(&[("KITTY_WINDOW_ID", "7")]);
-        assert_eq!(of_process(outside.id()), None);
-        let env = [
-            ("KITTY_LISTEN_ON", "unix:/tmp/kitty-0"),
-            ("KITTY_WINDOW_ID", "7"),
-            ("KITTY_PID", "42"),
-            ("HYPRLAND_INSTANCE_SIGNATURE", "sig"),
-        ];
-        let mut inside = child(&env);
+        assert_eq!(of_environ(b"PATH=/bin\0KITTY_WINDOW_ID=7\0"), None);
+        let env = b"PATH=/bin\0KITTY_LISTEN_ON=unix:/tmp/kitty-0\0KITTY_WINDOW_ID=7\0KITTY_PID=42\0\
+                    HYPRLAND_INSTANCE_SIGNATURE=sig\0";
         let want = Terminal { to: "unix:/tmp/kitty-0".into(), window: 7, kitty: 42, hypr: "sig".into() };
-        assert_eq!(of_process(inside.id()), Some(want));
-        for c in [&mut outside, &mut inside] {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
+        assert_eq!(of_environ(env), Some(want));
+        // macOS: no Hyprland, maybe no KITTY_PID
+        let mac = b"KITTY_LISTEN_ON=unix:/tmp/kitty-1\0KITTY_WINDOW_ID=3\0";
+        assert_eq!(
+            of_environ(mac),
+            Some(Terminal { to: "unix:/tmp/kitty-1".into(), window: 3, kitty: 0, hypr: "".into() })
+        );
+        assert_eq!(of_environ(b"KITTY_LISTEN_ON=x\0KITTY_WINDOW_ID=seven\0"), None);
     }
 }

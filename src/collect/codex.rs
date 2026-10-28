@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use super::follow::{Follow, follow, parse_ts, scan_back};
 use super::text::{Msg, codex_kind, py_space};
-use super::{Found, SpendKey, Terms, basename, has, mtime, procfs};
+use super::{Found, SpendKey, Terms, basename, has, mtime, process};
 use crate::session::{State, Tool, Why};
 use crate::usage::{codex_dir, truthy};
 
@@ -104,22 +104,21 @@ impl Threads {
 }
 
 fn processes() -> Vec<Proc> {
-    let (btime, tck) = (procfs::boot_time(), procfs::clk_tck());
     let mut sessions = codex_dir().join("sessions").to_string_lossy().into_owned();
     sessions.push('/');
     let mut out = Vec::new();
-    for pid in procfs::pids() {
-        let Some(exe) = procfs::exe(pid) else { continue };
+    for pid in process::pids() {
+        let Some(exe) = process::exe(pid) else { continue };
         if basename(&exe.to_string_lossy()) != "codex" {
             continue;
         }
-        let (Some(args), Some(cwd)) = (procfs::args(pid), procfs::cwd(pid)) else { continue };
+        let (Some(args), Some(cwd)) = (process::args(pid), process::cwd(pid)) else { continue };
         let positional: Vec<&str> = args.iter().map(String::as_str).filter(|a| !a.starts_with('-')).collect();
         let remote = positional.first() == Some(&"app-server") && args.iter().any(|a| a == "--remote-control");
         if positional.first().is_some_and(|p| NOT_TUI.contains(p)) && !remote {
             continue;
         }
-        let mut rollouts: Vec<PathBuf> = procfs::open_files(pid)
+        let mut rollouts: Vec<PathBuf> = process::open_files(pid)
             .into_iter()
             .filter(|t| {
                 let (t, b) = (t.to_string_lossy(), t.file_name().map(|b| b.to_string_lossy().into_owned()));
@@ -131,7 +130,7 @@ fn processes() -> Vec<Proc> {
             .collect();
         rollouts.sort();
         rollouts.dedup();
-        let start = procfs::start_ticks(pid).and_then(|t| t.parse::<f64>().ok()).map_or(0.0, |t| btime + t / tck);
+        let start = process::start_epoch(pid);
         out.push(Proc { pid, cwd: cwd.to_string_lossy().into_owned(), rollouts, start, remote });
     }
     out

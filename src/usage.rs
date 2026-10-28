@@ -277,10 +277,14 @@ pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// $XDG_CACHE_HOME/token-fantasy-desktop, else ~/.cache/token-fantasy-desktop.
+/// $XDG_CACHE_HOME/token-fantasy-desktop, else ~/.cache/token-fantasy-desktop
+/// on Linux and ~/Library/Caches/token-fantasy-desktop on macOS.
 pub(crate) fn cache_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CACHE_HOME").filter(|d| !d.is_empty()).map(PathBuf::from);
-    base.unwrap_or_else(|| home().join(".cache")).join("token-fantasy-desktop")
+    let base = base.unwrap_or_else(|| {
+        if cfg!(target_os = "macos") { home().join("Library/Caches") } else { home().join(".cache") }
+    });
+    base.join("token-fantasy-desktop")
 }
 
 /// Every *.jsonl under dir, like glob's `**/*.jsonl`: hidden names skipped.

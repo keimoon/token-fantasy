@@ -1,6 +1,7 @@
 //! Which Claude Code and Codex sessions run on this machine and what each is
 //! doing: its state, the last thing it said and the tool calls it makes.
-//! Linux only (/proc).
+//! Processes come from /proc on Linux (procfs.rs) and from libproc and sysctl
+//! on macOS (macos.rs).
 //!
 //! Remote sessions (a remote-control server's, from claude.ai or the phone)
 //! are found but left out of the battle: they were too hard to keep track of
@@ -9,18 +10,44 @@
 mod claude;
 mod codex;
 mod follow;
-mod procfs;
+#[cfg(target_os = "macos")]
+#[path = "macos.rs"]
+mod process;
+#[cfg(not(target_os = "macos"))]
+#[path = "procfs.rs"]
+mod process;
 mod text;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
+
 use crate::session::{SaidKind, State, Tool, Why};
 use crate::terminal::{self, Terminal};
+use crate::usage::truthy;
 
 pub(crate) use follow::epoch;
 pub(crate) use text::{pick_tool, py_space, word};
+
+/// A JSON value as Python's str() writes it, for procStart.
+fn py_str(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Bool(b) => if *b { "True" } else { "False" }.to_owned(),
+        other => other.to_string(),
+    }
+}
+
+/// A Claude session file whose procStart (the start ticks, on Linux) is
+/// these: the process's identity, else None (dead, or the pid was reused).
+#[cfg_attr(target_os = "macos", allow(dead_code))] // macOS compares dates (macos.rs); tests use it everywhere
+fn same_start(ticks: Option<String>, session: &Value) -> Option<String> {
+    let ticks = ticks?;
+    let other = session.get("procStart").is_some_and(|s| truthy(s) && py_str(s) != ticks);
+    (!other).then_some(ticks)
+}
 
 /// One live session, as found on disk.
 #[derive(Clone, Debug, PartialEq)]
@@ -100,13 +127,13 @@ struct Terms(HashMap<u32, (Option<String>, Option<Terminal>)>);
 
 impl Terms {
     fn get(&mut self, pid: u32, ticks: Option<String>) -> Option<Terminal> {
-        let ticks = ticks.filter(|t| !t.is_empty()).or_else(|| procfs::start_ticks(pid));
+        let ticks = ticks.filter(|t| !t.is_empty()).or_else(|| process::identity(pid));
         if let Some((t, term)) = self.0.get(&pid)
             && *t == ticks
         {
             return term.clone();
         }
-        let term = terminal::of_process(pid);
+        let term = process::environ(pid).and_then(|env| terminal::of_environ(&env));
         self.0.insert(pid, (ticks, term.clone()));
         term
     }

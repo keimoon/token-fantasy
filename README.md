@@ -8,10 +8,14 @@ Every Claude Code and Codex session running on your machine joins the party. The
 
 ![Rust](https://img.shields.io/badge/Rust-2024-dea584?logo=rust&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-Wayland%20%2F%20X11-3fb950?logo=linux&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-need_tester-d29922?logo=apple&logoColor=white)
 
 <img src="docs/battle.png" alt="A sunny battlefield: a Cactoid, a Stenchvine and a Behemoth on the left, six heroes on the right, a Spellsword's DOUBLECAST exploding on the Cactoid, and the monster, party and info windows along the bottom" width="852">
 
 </div>
+
+> [!IMPORTANT]
+> **macOS: need a Mac tester.** macOS support is written (sessions found through libproc and sysctl, sounds through `afplay`, terminals brought up with `open -a kitty`) and type-checks, but nobody has run it on a Mac yet. If you have one, please build it, run `token-fantasy --print` next to a Claude Code or Codex session, then the window, and open an issue with what you see, good or bad.
 
 ## What you're looking at
 
@@ -53,11 +57,11 @@ The sky follows the clock, from day to dusk to night.
 
 ## Getting started
 
-You need [Rust](https://rustup.rs) 1.88 or newer and a C compiler (SQLite is built in), on a Linux Wayland or X11 desktop. Optional extras:
+You need [Rust](https://rustup.rs) 1.88 or newer and a C compiler (SQLite is built in), on a Linux Wayland or X11 desktop, or on macOS (untested, see above; `xcode-select --install` gives you the C compiler). Optional extras:
 
 - `curl`, for the MP bars.
-- `pw-play`, `paplay` or `aplay`, for the sounds.
-- kitty with remote control (`listen_on` in `kitty.conf`) and Hyprland, to bring a session's terminal up from its card.
+- `pw-play`, `paplay` or `aplay`, for the sounds (macOS has `afplay` built in).
+- kitty with remote control (`listen_on` in `kitty.conf`), to bring a session's terminal up from its card; on Linux it is raised with Hyprland's `hyprctl`, on macOS with `open -a kitty`.
 
 ```sh
 cargo build --release
@@ -98,8 +102,8 @@ Everything except the quota is read from your own disk.
 
 Token Fantasy writes only to these folders:
 
-- `~/.cache/token-fantasy-desktop/`: the usage and quota caches.
-- `~/.config/token-fantasy-desktop/settings.json`: mute, volume and pace.
+- `~/.cache/token-fantasy-desktop/` (macOS: `~/Library/Caches/token-fantasy-desktop/`): the usage and quota caches.
+- `~/.config/token-fantasy-desktop/settings.json` (macOS: `~/Library/Application Support/token-fantasy-desktop/`): mute, volume and pace.
 - `$XDG_RUNTIME_DIR/token-fantasy-desktop/`: the sounds.
 
 ## Under the hood

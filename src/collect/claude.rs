@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use super::follow::{Follow, follow, parse_ts, scan_back};
 use super::text::{Msg, claude_kind, py_space, tool_said};
-use super::{Found, Said, SpendKey, Terms, basename, has, procfs};
+use super::{Found, Said, SpendKey, Terms, basename, has, process};
 use crate::session::{State, Tool, Why};
 use crate::usage::{claude_dir, truthy};
 
@@ -55,15 +55,6 @@ pub struct Claude {
 
 fn millis(d: &Value, keys: &[&str]) -> Option<f64> {
     keys.iter().find_map(|k| d.get(*k).filter(|v| truthy(v))).and_then(Value::as_f64)
-}
-
-/// A JSON value as Python's str() writes it, for procStart.
-fn py_str(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Bool(b) => if *b { "True" } else { "False" }.to_owned(),
-        other => other.to_string(),
-    }
 }
 
 fn id_of(v: Option<&Value>) -> Option<String> {
@@ -158,16 +149,17 @@ impl Claude {
     /// Every live session, with whether it is a remote-control server's.
     pub fn sessions(&mut self, now: f64, terms: &mut Terms) -> Vec<(Found, bool)> {
         let dir = claude_dir();
-        self.sessions_in(&dir.join("sessions"), &dir.join("projects"), now, terms, procfs::start_ticks)
+        self.sessions_in(&dir.join("sessions"), &dir.join("projects"), now, terms, process::alive)
     }
 
+    /// alive: the identity of the live process that wrote a session file, else None.
     fn sessions_in(
         &mut self,
         sessions: &Path,
         projects: &Path,
         now: f64,
         terms: &mut Terms,
-        ticks_of: impl Fn(u32) -> Option<String>,
+        alive: impl Fn(u32, &Value) -> Option<String>,
     ) -> Vec<(Found, bool)> {
         let mut out = Vec::new();
         let mut used = HashSet::new();
@@ -186,10 +178,7 @@ impl Claude {
             }
             let Some(pid) = d.get("pid").filter(|p| truthy(p)).and_then(Value::as_u64) else { continue };
             let Ok(pid) = u32::try_from(pid) else { continue };
-            let Some(ticks) = ticks_of(pid) else { continue };
-            if d.get("procStart").is_some_and(|s| truthy(s) && py_str(s) != ticks) {
-                continue; // dead, or the pid was reused
-            }
+            let Some(ticks) = alive(pid, &d) else { continue }; // dead, or the pid was reused
             let state = match d.get("status").and_then(Value::as_str) {
                 Some("busy") => State::Work,
                 Some("waiting") => State::Wait,
@@ -385,7 +374,8 @@ mod tests {
         write(14, json!({"pid": 14, "status": "busy"}));
         let mut c = Claude::default();
         let mut terms = Terms::default();
-        let found = c.sessions_in(&sessions, &projects, 2000.0, &mut terms, |pid| (pid != 99).then(|| "500".into()));
+        let alive = |pid, d: &Value| super::super::same_start((pid != 99).then(|| "500".into()), d);
+        let found = c.sessions_in(&sessions, &projects, 2000.0, &mut terms, alive);
         let mut found: Vec<Found> = found.into_iter().map(|(f, remote)| (assert!(!remote), f).1).collect();
         found.sort_by_key(|f| f.pid);
         assert_eq!(found.len(), 2);

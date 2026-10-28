@@ -22,12 +22,14 @@ impl Default for Settings {
     }
 }
 
+/// $XDG_CONFIG_HOME, else ~/.config on Linux and ~/Library/Application Support on macOS.
 fn path() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into())).join(".config"))
-        .join("token-fantasy-desktop")
-        .join("settings.json")
+    let home = || PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
+    let base = std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()).map(PathBuf::from);
+    let base = base.unwrap_or_else(|| {
+        if cfg!(target_os = "macos") { home().join("Library/Application Support") } else { home().join(".config") }
+    });
+    base.join("token-fantasy-desktop").join("settings.json")
 }
 
 impl Settings {

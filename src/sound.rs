@@ -4,7 +4,8 @@
 //!
 //! Each sound is rendered once to a WAV file under $XDG_RUNTIME_DIR (else
 //! the temp dir) and played by the desktop's player, `pw-play`, `paplay` or
-//! `aplay`, whichever is installed, on a thread of its own.
+//! `aplay` (Linux) or `afplay` (macOS), whichever is installed, on a thread
+//! of its own.
 
 use std::f32::consts::PI;
 use std::path::PathBuf;
@@ -125,7 +126,9 @@ fn player() -> Option<&'static str> {
     static PLAYER: OnceLock<Option<&'static str>> = OnceLock::new();
     *PLAYER.get_or_init(|| {
         let path = std::env::var_os("PATH").unwrap_or_default();
-        ["pw-play", "paplay", "aplay"].into_iter().find(|p| std::env::split_paths(&path).any(|d| d.join(p).is_file()))
+        ["pw-play", "paplay", "aplay", "afplay"]
+            .into_iter()
+            .find(|p| std::env::split_paths(&path).any(|d| d.join(p).is_file()))
     })
 }
 
